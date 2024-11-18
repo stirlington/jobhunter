@@ -1,35 +1,25 @@
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-import time
 import streamlit as st
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+import time
 
 def setup_chrome_options():
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-gpu')
-    return chrome_options
+    options = uc.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-software-rasterizer')
+    return options
 
 def search_job_vacancies(company_name):
     quality_jobs = []
     regulatory_jobs = []
     
     try:
-        # Updated Chrome WebDriver setup
-        service = Service()
-        driver = webdriver.Chrome(
-            service=service,
-            options=setup_chrome_options()
-        )
+        driver = uc.Chrome(options=setup_chrome_options())
         
-        # Search queries
         search_terms = {
             "quality": f"{company_name} quality jobs",
             "regulatory": f"{company_name} regulatory jobs"
@@ -40,9 +30,8 @@ def search_job_vacancies(company_name):
         for job_type, search_term in search_terms.items():
             try:
                 driver.get(f"https://www.google.com/search?q={search_term}")
-                time.sleep(2)  # Wait for results to load
+                time.sleep(3)  # Increased wait time
                 
-                # Find job-related links
                 links = driver.find_elements(By.TAG_NAME, "a")
                 found_jobs = False
                 
@@ -72,7 +61,8 @@ def search_job_vacancies(company_name):
                         regulatory_jobs.append(job_info)
                     
             except Exception as e:
-                job_info = {"url": f"Error: {str(e)}", "title": "Error occurred"}
+                st.warning(f"Search error for {job_type} jobs: {str(e)}")
+                job_info = {"url": "Error searching", "title": "Error occurred"}
                 if job_type == "quality":
                     quality_jobs.append(job_info)
                 else:
@@ -81,7 +71,7 @@ def search_job_vacancies(company_name):
         driver.quit()
     except Exception as e:
         st.error(f"Browser error: {str(e)}")
-        return [{"url": "Error", "title": "Error"}], [{"url": "Error", "title": "Error"}]
+        return [{"url": "Browser error", "title": "Error"}], [{"url": "Browser error", "title": "Error"}]
     
     return quality_jobs, regulatory_jobs
 
@@ -174,4 +164,4 @@ def main():
             st.error(f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
-    main() 
+    main()
