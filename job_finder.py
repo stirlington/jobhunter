@@ -10,7 +10,7 @@ import time
 import os
 
 # Configure Streamlit page
-st.set_page_config(page_title="LinkedIn Job Search Assistant", layout="wide")
+st.set_page_config(page_title="Job Search Assistant", layout="wide")
 
 @st.cache_resource
 def get_webdriver_options():
@@ -24,41 +24,52 @@ def get_webdriver_options():
     options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
-def search_linkedin_jobs(company, job_title, location, driver):
+def search_jobs(company, job_title, driver):
     jobs = []
     try:
-        # Construct LinkedIn search URL
-        search_url = f"https://www.linkedin.com/jobs/search/?keywords={job_title}&location={location}&company={company}"
+        # Construct Google search URL for LinkedIn jobs
+        search_query = f"{company} {job_title} jobs site:linkedin.com/jobs"
+        search_url = f"https://www.google.com/search?q={search_query}"
+        
         driver.get(search_url)
-        time.sleep(3)  # Increased wait time
+        time.sleep(2)
         
-        # Find job listings
-        job_cards = WebDriverWait(driver, 10).until(
-            EC.presence_of_all_elements_located((By.CLASS_NAME, "job-card-container"))
-        )
+        # Find all search result links
+        links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
         
-        for job in job_cards[:5]:  # Limit to first 5 results per company
+        for link in links:
             try:
-                title = job.find_element(By.CLASS_NAME, "job-card-list__title").text
-                job_location = job.find_element(By.CLASS_NAME, "job-card-container__metadata-item").text
-                url = job.find_element(By.CLASS_NAME, "job-card-list__title").get_attribute("href")
-                
-                jobs.append({
-                    'Company': company,
-                    'Title': title,
-                    'Location': job_location,
-                    'URL': url
-                })
+                url = link.get_attribute("href")
+                if "linkedin.com/jobs" in url.lower():
+                    # Get the parent element for more context
+                    parent = link.find_element(By.XPATH, "./../../..")
+                    title_element = parent.find_element(By.CSS_SELECTOR, "h3")
+                    title = title_element.text
+                    
+                    # Get snippet text if available
+                    try:
+                        snippet = parent.find_element(By.CSS_SELECTOR, "div.VwiC3b").text
+                    except:
+                        snippet = ""
+                    
+                    if any(keyword.lower() in title.lower() or keyword.lower() in snippet.lower() 
+                           for keyword in ["quality", "regulatory", "qa", "qc"]):
+                        jobs.append({
+                            'Company': company,
+                            'Title': title,
+                            'Description': snippet,
+                            'URL': url
+                        })
             except Exception as e:
                 continue
                 
     except Exception as e:
-        st.warning(f"No jobs found for {company}")
+        st.warning(f"Error searching for {company}: {str(e)}")
     
     return jobs
 
 def main():
-    st.title("LinkedIn Job Search Assistant")
+    st.title("Job Search Assistant")
 
     # File upload
     st.subheader("Upload Company List")
@@ -82,12 +93,11 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 job_titles = st.multiselect(
-                    "Job Titles",
-                    ["Quality", "Regulatory", "Quality Assurance", "Quality Control", "Regulatory Affairs"],
-                    default=["Quality", "Regulatory"]
+                    "Job Types",
+                    ["Quality Assurance", "Quality Control", "Regulatory Affairs", 
+                     "Quality Manager", "Regulatory Manager"],
+                    default=["Quality Assurance", "Regulatory Affairs"]
                 )
-            with col2:
-                location = st.text_input("Location", "United Kingdom")
 
             if st.button("Search Jobs"):
                 results = []
@@ -104,11 +114,12 @@ def main():
                     for company in df[company_column].unique():
                         for job_title in job_titles:
                             status_text.text(f"Searching {job_title} jobs for {company}...")
-                            jobs = search_linkedin_jobs(company, job_title, location, driver)
+                            jobs = search_jobs(company, job_title, driver)
                             results.extend(jobs)
                             
                             search_count += 1
                             progress_bar.progress(search_count / total_searches)
+                            time.sleep(2)  # Delay between searches
                             
                 finally:
                     driver.quit()
@@ -117,6 +128,9 @@ def main():
                 results_df = pd.DataFrame(results)
                 
                 if not results_df.empty:
+                    # Remove duplicates
+                    results_df = results_df.drop_duplicates(subset=['URL'])
+                    
                     st.subheader("Search Results")
                     st.dataframe(results_df)
                     
@@ -131,22 +145,22 @@ def main():
                     col1.download_button(
                         label="Download CSV",
                         data=csv,
-                        file_name="linkedin_job_results.csv",
+                        file_name="job_search_results.csv",
                         mime="text/csv"
                     )
                     
                     # Excel Download
-                    buffer = pd.ExcelWriter('linkedin_job_results.xlsx', engine='xlsxwriter')
+                    buffer = pd.ExcelWriter('job_search_results.xlsx', engine='xlsxwriter')
                     results_df.to_excel(buffer, index=False)
                     buffer.save()
                     
-                    with open('linkedin_job_results.xlsx', 'rb') as f:
+                    with open('job_search_results.xlsx', 'rb') as f:
                         excel_data = f.read()
                     
                     col2.download_button(
                         label="Download Excel",
                         data=excel_data,
-                        file_name="linkedin_job_results.xlsx",
+                        file_name="job_search_results.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 else:
@@ -159,11 +173,10 @@ def main():
     ### Instructions
     1. Upload an Excel file containing company names
     2. Select the column containing company names
-    3. Select job titles to search for
-    4. Enter location (default: United Kingdom)
-    5. Click 'Search Jobs' to start the search
-    6. Results will show below
-    7. Download results as CSV or Excel
+    3. Select job types to search for
+    4. Click 'Search Jobs' to start the search
+    5. Results will show below
+    6. Download results as CSV or Excel
     """)
 
 if __name__ == "__main__":
