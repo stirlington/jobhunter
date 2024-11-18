@@ -1,5 +1,6 @@
 pandas
+selenium
 streamlit
-playwright
 xlsxwriter
 openpyxl
+webdriver_manager
