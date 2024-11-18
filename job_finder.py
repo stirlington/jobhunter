@@ -1,74 +1,68 @@
 import pandas as pd
 import streamlit as st
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
+from playwright.sync_api import sync_playwright
 import time
-
-def setup_chrome_options():
-    options = uc.ChromeOptions()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-software-rasterizer')
-    return options
 
 def search_job_vacancies(company_name):
     quality_jobs = []
     regulatory_jobs = []
     
     try:
-        driver = uc.Chrome(options=setup_chrome_options())
-        
-        search_terms = {
-            "quality": f"{company_name} quality jobs",
-            "regulatory": f"{company_name} regulatory jobs"
-        }
-        
-        job_sites = ["linkedin.com/jobs", "indeed.com", "careers", "workday.com", "jobs"]
-        
-        for job_type, search_term in search_terms.items():
-            try:
-                driver.get(f"https://www.google.com/search?q={search_term}")
-                time.sleep(3)  # Increased wait time
-                
-                links = driver.find_elements(By.TAG_NAME, "a")
-                found_jobs = False
-                
-                for link in links:
-                    try:
-                        href = link.get_attribute("href")
-                        if href and any(site in href.lower() for site in job_sites):
-                            link_text = link.text.lower()
-                            if any(keyword in link_text for keyword in ["job", "career", "position", "vacancy", "opportunities"]):
-                                job_info = {
-                                    "url": href,
-                                    "title": link.text.strip() or "Job Posting"
-                                }
-                                if job_type == "quality":
-                                    quality_jobs.append(job_info)
-                                else:
-                                    regulatory_jobs.append(job_info)
-                                found_jobs = True
-                    except:
-                        continue
-                
-                if not found_jobs:
-                    job_info = {"url": "No jobs found", "title": "No jobs found"}
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            
+            search_terms = {
+                "quality": f"{company_name} quality jobs",
+                "regulatory": f"{company_name} regulatory jobs"
+            }
+            
+            job_sites = ["linkedin.com/jobs", "indeed.com", "careers", "workday.com", "jobs"]
+            
+            for job_type, search_term in search_terms.items():
+                try:
+                    page.goto(f"https://www.google.com/search?q={search_term}")
+                    time.sleep(2)
+                    
+                    # Get all links
+                    links = page.query_selector_all("a")
+                    found_jobs = False
+                    
+                    for link in links:
+                        try:
+                            href = link.get_attribute("href")
+                            if href and any(site in href.lower() for site in job_sites):
+                                link_text = link.inner_text().lower()
+                                if any(keyword in link_text for keyword in ["job", "career", "position", "vacancy", "opportunities"]):
+                                    job_info = {
+                                        "url": href,
+                                        "title": link.inner_text().strip() or "Job Posting"
+                                    }
+                                    if job_type == "quality":
+                                        quality_jobs.append(job_info)
+                                    else:
+                                        regulatory_jobs.append(job_info)
+                                    found_jobs = True
+                        except:
+                            continue
+                    
+                    if not found_jobs:
+                        job_info = {"url": "No jobs found", "title": "No jobs found"}
+                        if job_type == "quality":
+                            quality_jobs.append(job_info)
+                        else:
+                            regulatory_jobs.append(job_info)
+                        
+                except Exception as e:
+                    st.warning(f"Search error for {job_type} jobs: {str(e)}")
+                    job_info = {"url": "Error searching", "title": "Error occurred"}
                     if job_type == "quality":
                         quality_jobs.append(job_info)
                     else:
                         regulatory_jobs.append(job_info)
-                    
-            except Exception as e:
-                st.warning(f"Search error for {job_type} jobs: {str(e)}")
-                job_info = {"url": "Error searching", "title": "Error occurred"}
-                if job_type == "quality":
-                    quality_jobs.append(job_info)
-                else:
-                    regulatory_jobs.append(job_info)
-        
-        driver.quit()
+            
+            browser.close()
+            
     except Exception as e:
         st.error(f"Browser error: {str(e)}")
         return [{"url": "Browser error", "title": "Error"}], [{"url": "Browser error", "title": "Error"}]
