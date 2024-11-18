@@ -1,8 +1,7 @@
 pandas
-selenium
 streamlit
 beautifulsoup4
 requests
 xlsxwriter
 openpyxl
-webdriver_manager
+undetected-chromedriver
