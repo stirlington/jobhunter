@@ -24,11 +24,11 @@ def get_webdriver_options():
     options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
-def search_jobs(company, job_title, driver):
+def search_jobs(company, job_title, location, driver):
     jobs = []
     try:
         # Construct Google search URL for LinkedIn jobs
-        search_query = f"{company} {job_title} jobs site:linkedin.com/jobs"
+        search_query = f"{company} {job_title} {location} site:linkedin.com/jobs/view/"
         search_url = f"https://www.google.com/search?q={search_query}"
         
         driver.get(search_url)
@@ -40,7 +40,8 @@ def search_jobs(company, job_title, driver):
         for link in links:
             try:
                 url = link.get_attribute("href")
-                if "linkedin.com/jobs" in url.lower():
+                # Only accept direct job listing URLs
+                if "linkedin.com/jobs/view/" in url.lower() and "search?" not in url.lower():
                     # Get the parent element for more context
                     parent = link.find_element(By.XPATH, "./../../..")
                     title_element = parent.find_element(By.CSS_SELECTOR, "h3")
@@ -52,12 +53,18 @@ def search_jobs(company, job_title, driver):
                     except:
                         snippet = ""
                     
-                    if any(keyword.lower() in title.lower() or keyword.lower() in snippet.lower() 
-                           for keyword in ["quality", "regulatory", "qa", "qc"]):
+                    # Check if the job title and company name are in the title or snippet
+                    title_lower = title.lower()
+                    snippet_lower = snippet.lower()
+                    company_lower = company.lower()
+                    job_title_lower = job_title.lower()
+                    
+                    if ((job_title_lower in title_lower or job_title_lower in snippet_lower) and 
+                        (company_lower in title_lower or company_lower in snippet_lower)):
                         jobs.append({
                             'Company': company,
                             'Title': title,
-                            'Description': snippet,
+                            'Location': location,
                             'URL': url
                         })
             except Exception as e:
@@ -90,7 +97,7 @@ def main():
 
             # Search parameters
             st.subheader("Search Parameters")
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 job_titles = st.multiselect(
                     "Job Types",
@@ -98,11 +105,24 @@ def main():
                      "Quality Manager", "Regulatory Manager"],
                     default=["Quality Assurance", "Regulatory Affairs"]
                 )
-
+            with col2:
+                location = st.text_input("Location", "United Kingdom")
+            
+            # Create a placeholder for the results table
+            results_table = st.empty()
+            
             if st.button("Search Jobs"):
                 results = []
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                
+                # Initialize results DataFrame with all companies
+                results_df = pd.DataFrame({
+                    'Company': df[company_column].unique(),
+                    'Quality Jobs': ['Searching...' for _ in range(len(df[company_column].unique()))],
+                    'Regulatory Jobs': ['Searching...' for _ in range(len(df[company_column].unique()))],
+                })
+                results_table.dataframe(results_df)
                 
                 try:
                     # Initialize driver once for all searches
@@ -111,32 +131,37 @@ def main():
                     total_searches = len(df[company_column]) * len(job_titles)
                     search_count = 0
                     
-                    for company in df[company_column].unique():
+                    for idx, company in enumerate(df[company_column].unique()):
+                        company_jobs = {'Quality': [], 'Regulatory': []}
+                        
                         for job_title in job_titles:
                             status_text.text(f"Searching {job_title} jobs for {company}...")
-                            jobs = search_jobs(company, job_title, driver)
-                            results.extend(jobs)
+                            jobs = search_jobs(company, job_title, location, driver)
+                            
+                            # Categorize jobs
+                            for job in jobs:
+                                if any(q in job_title.lower() for q in ['quality', 'qa', 'qc']):
+                                    company_jobs['Quality'].append(job['URL'])
+                                if 'regulatory' in job_title.lower():
+                                    company_jobs['Regulatory'].append(job['URL'])
                             
                             search_count += 1
                             progress_bar.progress(search_count / total_searches)
                             time.sleep(2)  # Delay between searches
+                        
+                        # Update results for this company
+                        results_df.at[idx, 'Quality Jobs'] = '\n'.join(company_jobs['Quality']) if company_jobs['Quality'] else 'No jobs found'
+                        results_df.at[idx, 'Regulatory Jobs'] = '\n'.join(company_jobs['Regulatory']) if company_jobs['Regulatory'] else 'No jobs found'
+                        
+                        # Update the displayed table
+                        results_table.dataframe(results_df)
                             
                 finally:
                     driver.quit()
                 
-                # Create results DataFrame
-                results_df = pd.DataFrame(results)
+                status_text.text("Search completed!")
                 
                 if not results_df.empty:
-                    # Remove duplicates
-                    results_df = results_df.drop_duplicates(subset=['URL'])
-                    
-                    st.subheader("Search Results")
-                    st.dataframe(results_df)
-                    
-                    # Save to session state to prevent re-searching
-                    st.session_state.results_df = results_df
-                    
                     # Download buttons
                     col1, col2 = st.columns(2)
                     
@@ -174,9 +199,10 @@ def main():
     1. Upload an Excel file containing company names
     2. Select the column containing company names
     3. Select job types to search for
-    4. Click 'Search Jobs' to start the search
-    5. Results will show below
-    6. Download results as CSV or Excel
+    4. Enter location (default: United Kingdom)
+    5. Click 'Search Jobs' to start the search
+    6. Watch results populate in real-time
+    7. Download final results as CSV or Excel
     """)
 
 if __name__ == "__main__":
