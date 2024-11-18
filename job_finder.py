@@ -97,16 +97,20 @@ def main():
 
             # Search parameters
             st.subheader("Search Parameters")
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                job_titles = st.multiselect(
-                    "Job Types",
-                    ["Quality Assurance", "Quality Control", "Regulatory Affairs", 
-                     "Quality Manager", "Regulatory Manager"],
-                    default=["Quality Assurance", "Regulatory Affairs"]
+                # Changed to text input for custom keywords
+                job_keywords = st.text_area(
+                    "Enter job titles/keywords (one per line)",
+                    value="Quality Assurance\nQuality Control\nRegulatory Affairs\nQA Manager\nQC Manager\nRegulatory Manager",
+                    height=150
                 )
+                # Convert text area input to list
+                job_titles = [title.strip() for title in job_keywords.split('\n') if title.strip()]
+                
             with col2:
                 location = st.text_input("Location", "United Kingdom")
+                st.info("💡 For multiple locations, separate with OR (e.g., 'United Kingdom OR Ireland')")
             
             # Create a placeholder for the results table
             results_table = st.empty()
