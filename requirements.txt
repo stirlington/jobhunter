@@ -3,4 +3,5 @@ selenium
 streamlit
 beautifulsoup4
 requests
-xlsxwriter 
+xlsxwriter
+openpyxl
