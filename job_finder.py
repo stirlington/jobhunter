@@ -67,7 +67,15 @@ def main():
     if uploaded_file is not None:
         try:
             df = pd.read_excel(uploaded_file)
-            st.write("Uploaded companies:", df)
+            
+            # Display column names and let user select the company column
+            st.write("Available columns in your file:", df.columns.tolist())
+            company_column = st.selectbox(
+                "Select the column containing company names:",
+                options=df.columns.tolist()
+            )
+            
+            st.write("Preview of companies:", df[company_column])
 
             # Search parameters
             st.subheader("Search Parameters")
@@ -90,10 +98,10 @@ def main():
                     # Initialize driver once for all searches
                     driver = webdriver.Chrome(options=get_webdriver_options())
                     
-                    total_searches = len(df['Company']) * len(job_titles)
+                    total_searches = len(df[company_column]) * len(job_titles)
                     search_count = 0
                     
-                    for company in df['Company'].unique():
+                    for company in df[company_column].unique():
                         for job_title in job_titles:
                             status_text.text(f"Searching {job_title} jobs for {company}...")
                             jobs = search_linkedin_jobs(company, job_title, location, driver)
@@ -149,12 +157,13 @@ def main():
 
     st.sidebar.markdown("""
     ### Instructions
-    1. Upload an Excel file containing company names (column should be named 'Company')
-    2. Select job titles to search for
-    3. Enter location (default: United Kingdom)
-    4. Click 'Search Jobs' to start the search
-    5. Results will show below
-    6. Download results as CSV or Excel
+    1. Upload an Excel file containing company names
+    2. Select the column containing company names
+    3. Select job titles to search for
+    4. Enter location (default: United Kingdom)
+    5. Click 'Search Jobs' to start the search
+    6. Results will show below
+    7. Download results as CSV or Excel
     """)
 
 if __name__ == "__main__":
