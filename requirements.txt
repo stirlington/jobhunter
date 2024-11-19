@@ -1,6 +1,4 @@
-pandas
-selenium
 streamlit
-xlsxwriter
-openpyxl
-webdriver_manager
+selenium
+pandas
+webdriver-manager
