@@ -3,8 +3,11 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import time
+import re
 
 # Configure Streamlit page
 st.set_page_config(page_title="Job Search Assistant", layout="wide")
@@ -21,24 +24,42 @@ def get_webdriver_options():
     options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
+def clean_job_title(title):
+    """Clean and filter job titles."""
+    # Remove extra whitespace and irrelevant text
+    title = re.sub(r'\s+', ' ', title).strip()
+    
+    # Filter out non-job related links
+    irrelevant_keywords = [
+        'careers', 'company', 'about', 'contact', 'login', 
+        'signup', 'home', 'jobs near me', 'all jobs'
+    ]
+    if any(keyword in title.lower() for keyword in irrelevant_keywords):
+        return None
+    
+    return title
+
 def search_jobs(company, driver):
     jobs = []
     platforms = [
-        {"name": "Google", "query": f"{company} jobs"},
+        {"name": "Google", "query": f"site:linkedin.com/jobs OR site:indeed.com {company} jobs"},
         {"name": "LinkedIn", "query": f"{company} jobs site:linkedin.com/jobs/view/"},
-        {"name": "Indeed UK", "query": f"{company} jobs site:indeed.co.uk"},
-        {"name": "Indeed US", "query": f"{company} jobs site:indeed.com"},
-        {"name": "PharmiWeb", "query": f"{company} jobs site:pharmiweb.com"},
-        {"name": "Company Careers", "query": f"{company} careers"}
+        {"name": "Indeed", "query": f"{company} jobs site:indeed.com"}
     ]
     
     for platform in platforms:
         try:
+            # Use more targeted search query
             search_url = f"https://www.google.com/search?q={platform['query']}"
             driver.get(search_url)
             time.sleep(2)
             
-            # Find all search result links
+            # Wait for search results to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.g"))
+            )
+            
+            # Find all search result links with improved selector
             links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
             
             for link in links:
@@ -46,33 +67,38 @@ def search_jobs(company, driver):
                     url = link.get_attribute("href")
                     title = link.text
                     
-                    # Filter out generic pages
-                    if "search?" not in url.lower():
-                        location = "Location not specified"  # Default location
-                        
-                        # Extract location for specific platforms
-                        if platform['name'] == "LinkedIn":
-                            try:
-                                location_element = link.find_element(By.XPATH, "./../../..//span[contains(@class, 'job-card-container__metadata-item')]")
-                                location = location_element.text if location_element else location
-                            except:
-                                pass
-                        elif platform['name'] in ["Indeed UK", "Indeed US"]:
-                            try:
-                                location_element = link.find_element(By.XPATH, "./../../..//div[contains(@class, 'companyLocation')]")
-                                location = location_element.text if location_element else location
-                            except:
-                                pass
-                        
+                    # Advanced filtering
+                    cleaned_title = clean_job_title(title)
+                    if not cleaned_title:
+                        continue
+                    
+                    # Default location
+                    location = "Location not specified"
+                    
+                    # Enhanced platform-specific location extraction
+                    try:
+                        if "linkedin.com" in url:
+                            location_element = link.find_element(By.XPATH, "./ancestor::div[contains(@class, 'g')]//span[contains(text(), ',')]")
+                            if location_element:
+                                location = location_element.text
+                        elif "indeed.com" in url:
+                            location_element = link.find_element(By.XPATH, "./ancestor::div[contains(@class, 'g')]//div[contains(text(), ',')]")
+                            if location_element:
+                                location = location_element.text
+                    except:
+                        pass
+                    
+                    # Validate job listing
+                    if any(platform_keyword in url.lower() for platform_keyword in ['linkedin', 'indeed']):
                         jobs.append({
                             'Platform': platform['name'],
                             'Company': company,
-                            'Job Title': title,
+                            'Job Title': cleaned_title,
                             'Location': location,
                             'URL': url
                         })
                 except Exception as e:
-                    continue
+                    st.warning(f"Error processing link: {str(e)}")
         except Exception as e:
             st.warning(f"Error searching on {platform['name']} for {company}: {str(e)}")
     
@@ -118,7 +144,11 @@ def main():
                         status_text.text(f"Searching jobs for {company}...")
                         
                         jobs = search_jobs(company, driver)
-                        results_df = pd.concat([results_df, pd.DataFrame(jobs)], ignore_index=True)
+                        
+                        # Remove duplicates before adding
+                        jobs_df = pd.DataFrame(jobs)
+                        jobs_df.drop_duplicates(subset=['URL'], inplace=True)
+                        results_df = pd.concat([results_df, jobs_df], ignore_index=True)
                         
                         # Update the displayed table
                         results_table.dataframe(results_df)
