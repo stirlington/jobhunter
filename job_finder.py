@@ -1,13 +1,10 @@
 import streamlit as st
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 import pandas as pd
 import time
-import os
 
 # Configure Streamlit page
 st.set_page_config(page_title="Job Search Assistant", layout="wide")
@@ -15,20 +12,19 @@ st.set_page_config(page_title="Job Search Assistant", layout="wide")
 @st.cache_resource
 def get_webdriver_options():
     options = Options()
-    options.add_argument('--headless')
+    options.add_argument('--headless')  # Run in headless mode
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-notifications')
     options.add_argument('--disable-popup-blocking')
-    options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
-def search_jobs(company, location, driver):
+def search_jobs(company, driver):
     jobs = []
     try:
         # Search for any jobs at the company
-        search_query = f"{company} jobs {location} site:linkedin.com/jobs/view/"
+        search_query = f"{company} jobs"
         search_url = f"https://www.google.com/search?q={search_query}"
         
         driver.get(search_url)
@@ -41,25 +37,17 @@ def search_jobs(company, location, driver):
             try:
                 url = link.get_attribute("href")
                 # Only accept direct job listing URLs
-                if "linkedin.com/jobs/view/" in url.lower() and "search?" not in url.lower():
+                if "linkedin.com/jobs/view/" in url.lower() or "indeed.com" in url.lower():
                     # Get the parent element for more context
-                    parent = link.find_element(By.XPATH, "./../../..")
-                    title_element = parent.find_element(By.CSS_SELECTOR, "h3")
+                    title_element = link.find_element(By.CSS_SELECTOR, "h3")
                     title = title_element.text
                     
-                    # Get snippet text if available
-                    try:
-                        snippet = parent.find_element(By.CSS_SELECTOR, "div.VwiC3b").text
-                    except:
-                        snippet = ""
-                    
-                    # Verify company name is in the listing
-                    if company.lower() in title.lower() or company.lower() in snippet.lower():
-                        jobs.append({
-                            'Company': company,
-                            'Job Title': title,
-                            'URL': url
-                        })
+                    # Append job details
+                    jobs.append({
+                        'Company': company,
+                        'Job Title': title,
+                        'URL': url
+                    })
             except Exception as e:
                 continue
                 
@@ -88,10 +76,6 @@ def main():
             
             st.write("Preview of companies:", df[company_column])
 
-            # Location input
-            location = st.text_input("Location", "United Kingdom")
-            st.info("💡 For multiple locations, separate with OR (e.g., 'United Kingdom OR Ireland')")
-            
             # Create a placeholder for the results table
             results_table = st.empty()
             
@@ -114,7 +98,7 @@ def main():
                     for idx, company in enumerate(df[company_column].unique()):
                         status_text.text(f"Searching jobs for {company}...")
                         
-                        jobs = search_jobs(company, location, driver)
+                        jobs = search_jobs(company, driver)
                         
                         # Update results for this company
                         if jobs:
@@ -172,10 +156,9 @@ def main():
     ### Instructions
     1. Upload an Excel file containing company names
     2. Select the column containing company names
-    3. Enter location (default: United Kingdom)
-    4. Click 'Search Jobs' to start
-    5. Watch results populate in real-time
-    6. Download results as CSV or Excel
+    3. Click 'Search Jobs' to start
+    4. Watch results populate in real-time
+    5. Download results as CSV or Excel
     """)
 
 if __name__ == "__main__":
