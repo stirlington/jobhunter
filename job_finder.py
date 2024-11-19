@@ -22,37 +22,40 @@ def get_webdriver_options():
 
 def search_jobs(company, driver):
     jobs = []
-    try:
-        # Search for any jobs at the company
-        search_query = f"{company} jobs"
-        search_url = f"https://www.google.com/search?q={search_query}"
-        
-        driver.get(search_url)
-        time.sleep(2)
-        
-        # Find all search result links
-        links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
-        
-        for link in links:
-            try:
-                url = link.get_attribute("href")
-                # Only accept direct job listing URLs
-                if "linkedin.com/jobs/view/" in url.lower() or "indeed.com" in url.lower():
-                    # Get the parent element for more context
-                    title_element = link.find_element(By.CSS_SELECTOR, "h3")
-                    title = title_element.text
+    platforms = [
+        {"name": "Google", "query": f"{company} careers"},
+        {"name": "LinkedIn", "query": f"{company} jobs site:linkedin.com"},
+        {"name": "Indeed UK", "query": f"{company} jobs site:indeed.co.uk"},
+        {"name": "Indeed US", "query": f"{company} jobs site:indeed.com"},
+        {"name": "PharmiWeb", "query": f"{company} jobs site:pharmiweb.com"},
+        {"name": "Company Careers", "query": f"{company} careers"}
+    ]
+    
+    for platform in platforms:
+        try:
+            search_url = f"https://www.google.com/search?q={platform['query']}"
+            driver.get(search_url)
+            time.sleep(2)  # Wait for the page to load
+            
+            # Find all search result links
+            links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
+            
+            for link in links:
+                try:
+                    url = link.get_attribute("href")
+                    title = link.text
                     
-                    # Append job details
-                    jobs.append({
-                        'Company': company,
-                        'Job Title': title,
-                        'URL': url
-                    })
-            except Exception as e:
-                continue
-                
-    except Exception as e:
-        st.warning(f"Error searching for {company}: {str(e)}")
+                    # Filter out generic pages and ensure we have job listings
+                    if "jobs" in title.lower() or "careers" in title.lower():
+                        jobs.append({
+                            'Company': company,
+                            'Job Title': title,
+                            'URL': url
+                        })
+                except Exception as e:
+                    continue
+        except Exception as e:
+            st.warning(f"Error searching on {platform['name']} for {company}: {str(e)}")
     
     return jobs
 
