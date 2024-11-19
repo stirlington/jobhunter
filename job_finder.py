@@ -1,59 +1,57 @@
 import streamlit as st
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import time
 import re
+import os
+
+# For Selenium Manager (works with newer Selenium versions)
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Configure Streamlit page
 st.set_page_config(page_title="Job Search Assistant", layout="wide")
 
-def get_webdriver_options():
-    """Configure Chrome WebDriver options."""
-    options = Options()
-    # Removed problematic arguments
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    # Add user agent to mimic browser
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    return options
-
 def create_webdriver():
-    """Create WebDriver with error handling."""
+    """
+    Create WebDriver with robust handling for different deployment environments
+    """
     try:
-        # Use WebDriver Manager to handle driver installation
-        service = Service(ChromeDriverManager().install())
-        options = get_webdriver_options()
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
-    except Exception as e:
-        st.error(f"Failed to initialize WebDriver: {e}")
-        return None
+        # Chrome options for headless and no-sandbox environments
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        
+        # User agent to mimic browser
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        
+        # Attempt to use WebDriver Manager for automatic driver management
+        try:
+            service = ChromeService(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            return driver
+        
+        except Exception as webdriver_manager_error:
+            # Fallback to system ChromeDriver if WebDriver Manager fails
+            st.warning(f"WebDriver Manager failed: {webdriver_manager_error}")
+            
+            try:
+                # Try using system ChromeDriver
+                driver = webdriver.Chrome(options=chrome_options)
+                return driver
+            
+            except Exception as system_driver_error:
+                st.error(f"Could not initialize WebDriver: {system_driver_error}")
+                return None
 
-def clean_job_title(title):
-    """Clean and filter job titles."""
-    # Remove extra whitespace and irrelevant text
-    title = re.sub(r'\s+', ' ', title).strip()
-    
-    # More aggressive filtering
-    if not title or len(title) < 5:
+    except Exception as e:
+        st.error(f"Unexpected error in WebDriver creation: {e}")
         return None
-    
-    # Filter out non-job related links
-    irrelevant_keywords = [
-        'careers', 'company', 'about', 'contact', 'login', 
-        'signup', 'home', 'jobs near me', 'all jobs'
-    ]
-    if any(keyword in title.lower() for keyword in irrelevant_keywords):
-        return None
-    
-    return title
 
 def search_jobs(company, driver):
     jobs = []
@@ -112,6 +110,25 @@ def search_jobs(company, driver):
     
     return jobs
 
+def clean_job_title(title):
+    """Clean and filter job titles."""
+    # Remove extra whitespace and irrelevant text
+    title = re.sub(r'\s+', ' ', title).strip()
+    
+    # More aggressive filtering
+    if not title or len(title) < 5:
+        return None
+    
+    # Filter out non-job related links
+    irrelevant_keywords = [
+        'careers', 'company', 'about', 'contact', 'login', 
+        'signup', 'home', 'jobs near me', 'all jobs'
+    ]
+    if any(keyword in title.lower() for keyword in irrelevant_keywords):
+        return None
+    
+    return title
+
 def main():
     st.title("Company Job Search Assistant")
 
@@ -144,7 +161,7 @@ def main():
                 # Initialize driver
                 driver = create_webdriver()
                 if not driver:
-                    st.error("Could not create WebDriver. Please check your Chrome installation.")
+                    st.error("Could not create WebDriver. Please check your Chrome/Chromium installation.")
                     return
                 
                 try:
