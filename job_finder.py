@@ -1,6 +1,7 @@
 import streamlit as st
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,22 +13,37 @@ import re
 # Configure Streamlit page
 st.set_page_config(page_title="Job Search Assistant", layout="wide")
 
-@st.cache_resource
 def get_webdriver_options():
+    """Configure Chrome WebDriver options."""
     options = Options()
+    # Removed problematic arguments
     options.add_argument('--headless')
-    options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-notifications')
-    options.add_argument('--disable-popup-blocking')
-    options.add_argument('--blink-settings=imagesEnabled=false')
+    # Add user agent to mimic browser
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
     return options
+
+def create_webdriver():
+    """Create WebDriver with error handling."""
+    try:
+        # Use WebDriver Manager to handle driver installation
+        service = Service(ChromeDriverManager().install())
+        options = get_webdriver_options()
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
+    except Exception as e:
+        st.error(f"Failed to initialize WebDriver: {e}")
+        return None
 
 def clean_job_title(title):
     """Clean and filter job titles."""
     # Remove extra whitespace and irrelevant text
     title = re.sub(r'\s+', ' ', title).strip()
+    
+    # More aggressive filtering
+    if not title or len(title) < 5:
+        return None
     
     # Filter out non-job related links
     irrelevant_keywords = [
@@ -42,7 +58,6 @@ def clean_job_title(title):
 def search_jobs(company, driver):
     jobs = []
     platforms = [
-        {"name": "Google", "query": f"site:linkedin.com/jobs OR site:indeed.com {company} jobs"},
         {"name": "LinkedIn", "query": f"{company} jobs site:linkedin.com/jobs/view/"},
         {"name": "Indeed", "query": f"{company} jobs site:indeed.com"}
     ]
@@ -52,12 +67,16 @@ def search_jobs(company, driver):
             # Use more targeted search query
             search_url = f"https://www.google.com/search?q={platform['query']}"
             driver.get(search_url)
-            time.sleep(2)
+            time.sleep(3)  # Increased wait time
             
             # Wait for search results to load
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.g"))
-            )
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.g"))
+                )
+            except Exception as wait_error:
+                st.warning(f"Timeout waiting for search results for {company}: {wait_error}")
+                continue
             
             # Find all search result links with improved selector
             links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
@@ -75,32 +94,21 @@ def search_jobs(company, driver):
                     # Default location
                     location = "Location not specified"
                     
-                    # Enhanced platform-specific location extraction
-                    try:
-                        if "linkedin.com" in url:
-                            location_element = link.find_element(By.XPATH, "./ancestor::div[contains(@class, 'g')]//span[contains(text(), ',')]")
-                            if location_element:
-                                location = location_element.text
-                        elif "indeed.com" in url:
-                            location_element = link.find_element(By.XPATH, "./ancestor::div[contains(@class, 'g')]//div[contains(text(), ',')]")
-                            if location_element:
-                                location = location_element.text
-                    except:
-                        pass
-                    
                     # Validate job listing
-                    if any(platform_keyword in url.lower() for platform_keyword in ['linkedin', 'indeed']):
-                        jobs.append({
-                            'Platform': platform['name'],
-                            'Company': company,
-                            'Job Title': cleaned_title,
-                            'Location': location,
-                            'URL': url
-                        })
-                except Exception as e:
-                    st.warning(f"Error processing link: {str(e)}")
-        except Exception as e:
-            st.warning(f"Error searching on {platform['name']} for {company}: {str(e)}")
+                    if not url or not any(platform_keyword in url.lower() for platform_keyword in ['linkedin', 'indeed']):
+                        continue
+                    
+                    jobs.append({
+                        'Platform': platform['name'],
+                        'Company': company,
+                        'Job Title': cleaned_title,
+                        'Location': location,
+                        'URL': url
+                    })
+                except Exception as link_error:
+                    st.warning(f"Error processing link for {company}: {link_error}")
+        except Exception as platform_error:
+            st.warning(f"Error searching on {platform['name']} for {company}: {platform_error}")
     
     return jobs
 
@@ -133,10 +141,13 @@ def main():
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
+                # Initialize driver
+                driver = create_webdriver()
+                if not driver:
+                    st.error("Could not create WebDriver. Please check your Chrome installation.")
+                    return
+                
                 try:
-                    # Initialize driver once for all searches
-                    driver = webdriver.Chrome(options=get_webdriver_options())
-                    
                     total_companies = len(df[company_column].unique())
                     search_count = 0
                     
@@ -147,8 +158,9 @@ def main():
                         
                         # Remove duplicates before adding
                         jobs_df = pd.DataFrame(jobs)
-                        jobs_df.drop_duplicates(subset=['URL'], inplace=True)
-                        results_df = pd.concat([results_df, jobs_df], ignore_index=True)
+                        if not jobs_df.empty:
+                            jobs_df.drop_duplicates(subset=['URL'], inplace=True)
+                            results_df = pd.concat([results_df, jobs_df], ignore_index=True)
                         
                         # Update the displayed table
                         results_table.dataframe(results_df)
