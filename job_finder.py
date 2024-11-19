@@ -21,14 +21,14 @@ def get_webdriver_options():
     options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
-def search_jobs(company, location, driver):
+def search_jobs(company, driver):
     jobs = []
     platforms = [
-        {"name": "Google", "query": f"{company} jobs {location}"},
-        {"name": "LinkedIn", "query": f"{company} jobs {location} site:linkedin.com/jobs/view/"},
-        {"name": "Indeed UK", "query": f"{company} jobs {location} site:indeed.co.uk"},
-        {"name": "Indeed US", "query": f"{company} jobs {location} site:indeed.com"},
-        {"name": "PharmiWeb", "query": f"{company} jobs {location} site:pharmiweb.com"},
+        {"name": "Google", "query": f"{company} jobs"},
+        {"name": "LinkedIn", "query": f"{company} jobs site:linkedin.com/jobs/view/"},
+        {"name": "Indeed UK", "query": f"{company} jobs site:indeed.co.uk"},
+        {"name": "Indeed US", "query": f"{company} jobs site:indeed.com"},
+        {"name": "PharmiWeb", "query": f"{company} jobs site:pharmiweb.com"},
         {"name": "Company Careers", "query": f"{company} careers"}
     ]
     
@@ -47,11 +47,21 @@ def search_jobs(company, location, driver):
                     title = link.text
                     
                     # Filter out generic pages
-                    if "search?" not in url.lower() and "linkedin.com/jobs" in url.lower():
+                    if "search?" not in url.lower():
+                        # Extract location from the title or snippet if available
+                        location = ""
+                        if platform['name'] == "LinkedIn":
+                            location_element = link.find_element(By.XPATH, "./../../..//span[contains(@class, 'job-card-container__metadata-item')]")
+                            location = location_element.text if location_element else "Location not specified"
+                        elif platform['name'] == "Indeed UK" or platform['name'] == "Indeed US":
+                            location_element = link.find_element(By.XPATH, "./../../..//div[contains(@class, 'companyLocation')]")
+                            location = location_element.text if location_element else "Location not specified"
+                        
                         jobs.append({
                             'Platform': platform['name'],
                             'Company': company,
                             'Job Title': title,
+                            'Location': location,
                             'URL': url
                         })
                 except Exception as e:
@@ -81,13 +91,9 @@ def main():
             
             st.write("Preview of companies:", df[company_column])
 
-            # Location input
-            location = st.text_input("Location", "United Kingdom")
-            st.info("💡 For multiple locations, separate with OR (e.g., 'United Kingdom OR Ireland')")
-            
             # Create a placeholder for the results table
             results_table = st.empty()
-            results_df = pd.DataFrame(columns=['Platform', 'Company', 'Job Title', 'URL'])
+            results_df = pd.DataFrame(columns=['Platform', 'Company', 'Job Title', 'Location', 'URL'])
             results_table.dataframe(results_df)
 
             if st.button("Search Jobs"):
@@ -104,7 +110,7 @@ def main():
                     for idx, company in enumerate(df[company_column].unique()):
                         status_text.text(f"Searching jobs for {company}...")
                         
-                        jobs = search_jobs(company, location, driver)
+                        jobs = search_jobs(company, driver)
                         results_df = pd.concat([results_df, pd.DataFrame(jobs)], ignore_index=True)
                         
                         # Update the displayed table
@@ -155,10 +161,9 @@ def main():
     ### Instructions
     1. Upload an Excel file containing company names
     2. Select the column containing company names
-    3. Enter location (default: United Kingdom)
-    4. Click 'Search Jobs' to start
-    5. Watch results populate in real-time
-    6. Download results as CSV or Excel
+    3. Click 'Search Jobs' to start
+    4. Watch results populate in real-time
+    5. Download results as CSV or Excel
     """)
 
 if __name__ == "__main__":
