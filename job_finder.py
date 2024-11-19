@@ -87,12 +87,10 @@ def main():
             
             # Create a placeholder for the results table
             results_table = st.empty()
-            
+            results_df = pd.DataFrame(columns=['Platform', 'Company', 'Job Title', 'URL'])
+            results_table.dataframe(results_df)
+
             if st.button("Search Jobs"):
-                # Initialize results DataFrame
-                results_df = pd.DataFrame(columns=['Platform', 'Company', 'Job Title', 'URL'])
-                results_table.dataframe(results_df)
-                
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
@@ -109,11 +107,11 @@ def main():
                         jobs = search_jobs(company, location, driver)
                         results_df = pd.concat([results_df, pd.DataFrame(jobs)], ignore_index=True)
                         
-                        search_count += 1
-                        progress_bar.progress(search_count / total_companies)
-                        
                         # Update the displayed table
                         results_table.dataframe(results_df)
+                        
+                        search_count += 1
+                        progress_bar.progress(search_count / total_companies)
                         
                         time.sleep(2)  # Delay between searches
                             
