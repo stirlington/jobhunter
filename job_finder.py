@@ -1,10 +1,13 @@
 import streamlit as st
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 import pandas as pd
 import time
+import os
 
 # Configure Streamlit page
 st.set_page_config(page_title="Job Search Assistant", layout="wide")
@@ -12,69 +15,56 @@ st.set_page_config(page_title="Job Search Assistant", layout="wide")
 @st.cache_resource
 def get_webdriver_options():
     options = Options()
-    options.add_argument('--headless')  # Run in headless mode
+    options.add_argument('--headless')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-notifications')
     options.add_argument('--disable-popup-blocking')
+    options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
-def search_jobs(company, driver):
+def search_jobs(company, location, driver):
     jobs = []
-    platforms = [
-        {"name": "Google", "query": f"{company} jobs"},
-        {"name": "LinkedIn", "query": f"{company} jobs site:linkedin.com"},
-        {"name": "Indeed UK", "query": f"{company} jobs site:indeed.co.uk"},
-        {"name": "Indeed US", "query": f"{company} jobs site:indeed.com"},
-        {"name": "PharmiWeb", "query": f"{company} jobs site:pharmiweb.com"},
-        {"name": "Company Careers", "query": f"{company} careers"}
-    ]
-    
-    for platform in platforms:
-        try:
-            search_url = f"https://www.google.com/search?q={platform['query']}"
-            driver.get(search_url)
-            time.sleep(2)  # Wait for the page to load
-            
-            # Find all search result links
-            links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
-            
-            for link in links:
-                try:
-                    url = link.get_attribute("href")
-                    title = link.text
+    try:
+        # Search for any jobs at the company
+        search_query = f"{company} jobs {location} site:linkedin.com/jobs/view/"
+        search_url = f"https://www.google.com/search?q={search_query}"
+        
+        driver.get(search_url)
+        time.sleep(2)
+        
+        # Find all search result links
+        links = driver.find_elements(By.CSS_SELECTOR, "div.g a")
+        
+        for link in links:
+            try:
+                url = link.get_attribute("href")
+                # Only accept direct job listing URLs
+                if "linkedin.com/jobs/view/" in url.lower() and "search?" not in url.lower():
+                    # Get the parent element for more context
+                    parent = link.find_element(By.XPATH, "./../../..")
+                    title_element = parent.find_element(By.CSS_SELECTOR, "h3")
+                    title = title_element.text
                     
-                    # Filter out generic pages
-                    if "search?" not in url.lower():
-                        location = "Location not specified"  # Default location
-                        
-                        # Extract location for specific platforms
-                        if platform['name'] == "LinkedIn":
-                            try:
-                                location_element = link.find_element(By.XPATH, ".//span[contains(@class, 'job-card-container__metadata-item')]")
-                                location = location_element.text if location_element else location
-                            except:
-                                pass
-                        elif platform['name'] in ["Indeed UK", "Indeed US"]:
-                            try:
-                                location_element = link.find_element(By.XPATH, ".//div[contains(@class, 'companyLocation')]")
-                                location = location_element.text if location_element else location
-                            except:
-                                pass
-                        
+                    # Get snippet text if available
+                    try:
+                        snippet = parent.find_element(By.CSS_SELECTOR, "div.VwiC3b").text
+                    except:
+                        snippet = ""
+                    
+                    # Verify company name is in the listing
+                    if company.lower() in title.lower() or company.lower() in snippet.lower():
                         jobs.append({
-                            'Platform': platform['name'],
                             'Company': company,
                             'Job Title': title,
-                            'Location': location,
                             'URL': url
                         })
-                except Exception as e:
-                    st.warning(f"Error processing link: {str(e)}")
-                    continue
-        except Exception as e:
-            st.warning(f"Error searching on {platform['name']} for {company}: {str(e)}")
+            except Exception as e:
+                continue
+                
+    except Exception as e:
+        st.warning(f"Error searching for {company}: {str(e)}")
     
     return jobs
 
@@ -98,12 +88,22 @@ def main():
             
             st.write("Preview of companies:", df[company_column])
 
+            # Location input
+            location = st.text_input("Location", "United Kingdom")
+            st.info("💡 For multiple locations, separate with OR (e.g., 'United Kingdom OR Ireland')")
+            
             # Create a placeholder for the results table
             results_table = st.empty()
-            results_df = pd.DataFrame(columns=['Platform', 'Company', 'Job Title', 'Location', 'URL'])
-            results_table.dataframe(results_df)
-
+            
             if st.button("Search Jobs"):
+                # Initialize results DataFrame
+                results_df = pd.DataFrame({
+                    'Company': df[company_column].unique(),
+                    'Jobs Found': ['Searching...' for _ in range(len(df[company_column].unique()))],
+                    'Job Listings': ['Searching...' for _ in range(len(df[company_column].unique()))]
+                })
+                results_table.dataframe(results_df)
+                
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
@@ -111,20 +111,24 @@ def main():
                     # Initialize driver once for all searches
                     driver = webdriver.Chrome(options=get_webdriver_options())
                     
-                    total_companies = len(df[company_column].unique())
-                    search_count = 0
-                    
                     for idx, company in enumerate(df[company_column].unique()):
                         status_text.text(f"Searching jobs for {company}...")
                         
-                        jobs = search_jobs(company, driver)
-                        results_df = pd.concat([results_df, pd.DataFrame(jobs)], ignore_index=True)
+                        jobs = search_jobs(company, location, driver)
+                        
+                        # Update results for this company
+                        if jobs:
+                            results_df.at[idx, 'Jobs Found'] = f"{len(jobs)} jobs found"
+                            results_df.at[idx, 'Job Listings'] = '\n'.join([f"{job['Job Title']}: {job['URL']}" for job in jobs])
+                        else:
+                            results_df.at[idx, 'Jobs Found'] = "No jobs found"
+                            results_df.at[idx, 'Job Listings'] = "No jobs found"
+                        
+                        # Update progress
+                        progress_bar.progress((idx + 1) / len(df[company_column].unique()))
                         
                         # Update the displayed table
                         results_table.dataframe(results_df)
-                        
-                        search_count += 1
-                        progress_bar.progress(search_count / total_companies)
                         
                         time.sleep(2)  # Delay between searches
                             
@@ -168,9 +172,10 @@ def main():
     ### Instructions
     1. Upload an Excel file containing company names
     2. Select the column containing company names
-    3. Click 'Search Jobs' to start
-    4. Watch results populate in real-time
-    5. Download results as CSV or Excel
+    3. Enter location (default: United Kingdom)
+    4. Click 'Search Jobs' to start
+    5. Watch results populate in real-time
+    6. Download results as CSV or Excel
     """)
 
 if __name__ == "__main__":
