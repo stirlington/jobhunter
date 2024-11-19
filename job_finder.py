@@ -24,11 +24,11 @@ def get_webdriver_options():
     options.add_argument('--blink-settings=imagesEnabled=false')
     return options
 
-def search_jobs(company, job_title, location, driver):
+def search_jobs(company, location, driver):
     jobs = []
     try:
-        # Construct Google search URL for LinkedIn jobs
-        search_query = f"{company} {job_title} {location} site:linkedin.com/jobs/view/"
+        # Search for any jobs at the company
+        search_query = f"{company} jobs {location} site:linkedin.com/jobs/view/"
         search_url = f"https://www.google.com/search?q={search_query}"
         
         driver.get(search_url)
@@ -53,18 +53,11 @@ def search_jobs(company, job_title, location, driver):
                     except:
                         snippet = ""
                     
-                    # Check if the job title and company name are in the title or snippet
-                    title_lower = title.lower()
-                    snippet_lower = snippet.lower()
-                    company_lower = company.lower()
-                    job_title_lower = job_title.lower()
-                    
-                    if ((job_title_lower in title_lower or job_title_lower in snippet_lower) and 
-                        (company_lower in title_lower or company_lower in snippet_lower)):
+                    # Verify company name is in the listing
+                    if company.lower() in title.lower() or company.lower() in snippet.lower():
                         jobs.append({
                             'Company': company,
-                            'Title': title,
-                            'Location': location,
+                            'Job Title': title,
                             'URL': url
                         })
             except Exception as e:
@@ -76,7 +69,7 @@ def search_jobs(company, job_title, location, driver):
     return jobs
 
 def main():
-    st.title("Job Search Assistant")
+    st.title("Company Job Search Assistant")
 
     # File upload
     st.subheader("Upload Company List")
@@ -95,70 +88,49 @@ def main():
             
             st.write("Preview of companies:", df[company_column])
 
-            # Search parameters
-            st.subheader("Search Parameters")
-            col1, col2 = st.columns(2)
-            with col1:
-                # Changed to text input for custom keywords
-                job_keywords = st.text_area(
-                    "Enter job titles/keywords (one per line)",
-                    value="Quality Assurance\nQuality Control\nRegulatory Affairs\nQA Manager\nQC Manager\nRegulatory Manager",
-                    height=150
-                )
-                # Convert text area input to list
-                job_titles = [title.strip() for title in job_keywords.split('\n') if title.strip()]
-                
-            with col2:
-                location = st.text_input("Location", "United Kingdom")
-                st.info("💡 For multiple locations, separate with OR (e.g., 'United Kingdom OR Ireland')")
+            # Location input
+            location = st.text_input("Location", "United Kingdom")
+            st.info("💡 For multiple locations, separate with OR (e.g., 'United Kingdom OR Ireland')")
             
             # Create a placeholder for the results table
             results_table = st.empty()
             
             if st.button("Search Jobs"):
-                results = []
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Initialize results DataFrame with all companies
+                # Initialize results DataFrame
                 results_df = pd.DataFrame({
                     'Company': df[company_column].unique(),
-                    'Quality Jobs': ['Searching...' for _ in range(len(df[company_column].unique()))],
-                    'Regulatory Jobs': ['Searching...' for _ in range(len(df[company_column].unique()))],
+                    'Jobs Found': ['Searching...' for _ in range(len(df[company_column].unique()))],
+                    'Job Listings': ['Searching...' for _ in range(len(df[company_column].unique()))]
                 })
                 results_table.dataframe(results_df)
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
                 try:
                     # Initialize driver once for all searches
                     driver = webdriver.Chrome(options=get_webdriver_options())
                     
-                    total_searches = len(df[company_column]) * len(job_titles)
-                    search_count = 0
-                    
                     for idx, company in enumerate(df[company_column].unique()):
-                        company_jobs = {'Quality': [], 'Regulatory': []}
+                        status_text.text(f"Searching jobs for {company}...")
                         
-                        for job_title in job_titles:
-                            status_text.text(f"Searching {job_title} jobs for {company}...")
-                            jobs = search_jobs(company, job_title, location, driver)
-                            
-                            # Categorize jobs
-                            for job in jobs:
-                                if any(q in job_title.lower() for q in ['quality', 'qa', 'qc']):
-                                    company_jobs['Quality'].append(job['URL'])
-                                if 'regulatory' in job_title.lower():
-                                    company_jobs['Regulatory'].append(job['URL'])
-                            
-                            search_count += 1
-                            progress_bar.progress(search_count / total_searches)
-                            time.sleep(2)  # Delay between searches
+                        jobs = search_jobs(company, location, driver)
                         
                         # Update results for this company
-                        results_df.at[idx, 'Quality Jobs'] = '\n'.join(company_jobs['Quality']) if company_jobs['Quality'] else 'No jobs found'
-                        results_df.at[idx, 'Regulatory Jobs'] = '\n'.join(company_jobs['Regulatory']) if company_jobs['Regulatory'] else 'No jobs found'
+                        if jobs:
+                            results_df.at[idx, 'Jobs Found'] = f"{len(jobs)} jobs found"
+                            results_df.at[idx, 'Job Listings'] = '\n'.join([f"{job['Job Title']}: {job['URL']}" for job in jobs])
+                        else:
+                            results_df.at[idx, 'Jobs Found'] = "No jobs found"
+                            results_df.at[idx, 'Job Listings'] = "No jobs found"
+                        
+                        # Update progress
+                        progress_bar.progress((idx + 1) / len(df[company_column].unique()))
                         
                         # Update the displayed table
                         results_table.dataframe(results_df)
+                        
+                        time.sleep(2)  # Delay between searches
                             
                 finally:
                     driver.quit()
@@ -174,26 +146,24 @@ def main():
                     col1.download_button(
                         label="Download CSV",
                         data=csv,
-                        file_name="job_search_results.csv",
+                        file_name="company_jobs.csv",
                         mime="text/csv"
                     )
                     
                     # Excel Download
-                    buffer = pd.ExcelWriter('job_search_results.xlsx', engine='xlsxwriter')
+                    buffer = pd.ExcelWriter('company_jobs.xlsx', engine='xlsxwriter')
                     results_df.to_excel(buffer, index=False)
                     buffer.save()
                     
-                    with open('job_search_results.xlsx', 'rb') as f:
+                    with open('company_jobs.xlsx', 'rb') as f:
                         excel_data = f.read()
                     
                     col2.download_button(
                         label="Download Excel",
                         data=excel_data,
-                        file_name="job_search_results.xlsx",
+                        file_name="company_jobs.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-                else:
-                    st.warning("No jobs found matching your criteria.")
 
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
@@ -202,11 +172,10 @@ def main():
     ### Instructions
     1. Upload an Excel file containing company names
     2. Select the column containing company names
-    3. Select job types to search for
-    4. Enter location (default: United Kingdom)
-    5. Click 'Search Jobs' to start the search
-    6. Watch results populate in real-time
-    7. Download final results as CSV or Excel
+    3. Enter location (default: United Kingdom)
+    4. Click 'Search Jobs' to start
+    5. Watch results populate in real-time
+    6. Download results as CSV or Excel
     """)
 
 if __name__ == "__main__":
