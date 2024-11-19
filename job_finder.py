@@ -48,14 +48,21 @@ def search_jobs(company, driver):
                     
                     # Filter out generic pages
                     if "search?" not in url.lower():
-                        # Extract location from the title or snippet if available
-                        location = ""
+                        location = "Location not specified"  # Default location
+                        
+                        # Extract location for specific platforms
                         if platform['name'] == "LinkedIn":
-                            location_element = link.find_element(By.XPATH, "./../../..//span[contains(@class, 'job-card-container__metadata-item')]")
-                            location = location_element.text if location_element else "Location not specified"
-                        elif platform['name'] == "Indeed UK" or platform['name'] == "Indeed US":
-                            location_element = link.find_element(By.XPATH, "./../../..//div[contains(@class, 'companyLocation')]")
-                            location = location_element.text if location_element else "Location not specified"
+                            try:
+                                location_element = link.find_element(By.XPATH, "./../../..//span[contains(@class, 'job-card-container__metadata-item')]")
+                                location = location_element.text if location_element else location
+                            except:
+                                pass
+                        elif platform['name'] in ["Indeed UK", "Indeed US"]:
+                            try:
+                                location_element = link.find_element(By.XPATH, "./../../..//div[contains(@class, 'companyLocation')]")
+                                location = location_element.text if location_element else location
+                            except:
+                                pass
                         
                         jobs.append({
                             'Platform': platform['name'],
